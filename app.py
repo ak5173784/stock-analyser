@@ -27,7 +27,7 @@ input,select,button{font:inherit;color:var(--text);background:#111c2d;border:1px
 footer{color:var(--muted);font-size:11px;text-align:center;padding:6px 0 20px}
 @media(max-width:950px){.layout{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:560px){header{padding:0 14px}main{padding:13px}.metrics{grid-template-columns:1fr 1fr}.metric strong{font-size:17px}.chart-wrap{height:330px}.panel{padding:12px}.pill.hide-mobile{display:none}}
-</style></head>
+.ai-panel{padding:0;overflow:hidden}.ai-head{padding:16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px}.ai-head h2{font-size:15px;margin:0}.ai-chat{padding:16px}.ai-messages{height:260px;overflow:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:12px}.ai-msg{max-width:88%;padding:11px 13px;border-radius:12px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}.ai-msg.bot{background:#17263a;border:1px solid #263a55;align-self:flex-start}.ai-msg.user{background:#1b4e8c;align-self:flex-end}.ai-compose{display:flex;gap:8px}.ai-compose textarea{flex:1;min-height:48px;max-height:120px;resize:vertical;background:#0b1422;border:1px solid #26354c;border-radius:10px;color:var(--text);padding:12px;font:inherit}.ai-compose button{min-width:88px}.ai-hints{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 11px}.ai-hints button{font-size:11px;min-height:31px;padding:6px 9px;color:#a9c9f6}.ai-foot{font-size:11px;color:var(--muted);margin-top:9px;line-height:1.5}@media(max-width:560px){.ai-compose{flex-direction:column}.ai-compose button{width:100%}}</style></head>
 <body>
 <header><div class="brand"><div class="logo">SV</div>StockVision <span style="color:#68a7ff">AI</span></div><div class="pill"><span class="status-dot"></span><span id="marketStatus">Data connection pending</span></div></header>
 <main>
@@ -60,6 +60,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;padding:6px 0 20px}
   <div class="panel"><div class="panel-head"><h2>Chart patterns & levels</h2><span class="tag">Auto mapped</span></div><div id="chartPatterns" class="list"><div class="empty">Load a chart to detect structures.</div></div></div>
   <div class="panel"><div class="panel-head"><h2>Support & resistance</h2></div><div id="levels" class="list"><div class="empty">Levels will appear here.</div></div></div>
  </section>
+ <section class="panel ai-panel"><div class="ai-head"><h2>Ask StockVision AI</h2><span class="tag">Simple-language assistant</span></div><div class="ai-chat"><div class="ai-messages" id="aiMessages" aria-live="polite"><div class="ai-msg bot">Hi! Ask me anything about the selected stock, charts, indicators, or market terms. I’ll explain it in simple language.</div></div><div class="ai-hints"><button type="button" data-prompt="Explain this stock's current chart in simple words.">Explain this chart</button><button type="button" data-prompt="What does RSI mean, and what is the current RSI telling us?">Explain RSI</button><button type="button" data-prompt="Explain the support and resistance levels.">Support & resistance</button><button type="button" data-prompt="What are the main risks and limitations in this analysis?">Main risks</button></div><div class="ai-compose"><textarea id="aiPrompt" rows="2" placeholder="Ask anything… e.g. What is RSI? Why did this stock fall today?"></textarea><button class="primary" id="aiSend" type="button">Ask AI</button></div><div class="ai-foot">Educational explanations only. Market data may be delayed. This assistant does not give personal buy/sell instructions or guarantee predictions.</div></div></section>
  <div class="notice">Market data is supplied by Yahoo Finance via yfinance and may be delayed, incomplete, rate-limited, or unavailable for some symbols and intervals. Signals are simple technical heuristics for learning only; they are not personalized financial advice, guaranteed predictions, or instructions to trade. No orders are placed.</div>
  <footer>StockVision AI · Independent educational analysis · Verify prices and data with your broker or exchange.</footer>
 </main>
@@ -90,6 +91,12 @@ async function load(){let sym=document.getElementById('symbol').value.trim().toU
 try{let r=await fetch('/api/history?symbol='+encodeURIComponent(sym)+'&exchange='+document.getElementById('exchange').value+'&interval='+interval);let j=await r.json();if(!r.ok)throw Error(j.error||'Unable to load market data');candles=j.data;hideTradingViewFallback();initCharts();candleSeries.setData(candles);volSeries.setData(candles.map(x=>({time:x.time,value:x.volume||0,color:x.close>=x.open?'rgba(24,199,138,.55)':'rgba(240,94,114,.55)'})));chart.timeScale().fitContent();volChart.timeScale().fitContent();let last=candles.at(-1),first=candles.at(-2)||last,delta=last.close-first.close,pct=first.close?delta/first.close*100:0;
 document.getElementById('price').textContent=fmt(last.close);let ch=document.getElementById('change');ch.textContent=(delta>=0?'+':'')+fmt(delta)+' ('+pct.toFixed(2)+'%) vs previous candle';ch.className=delta>=0?'positive':'negative';document.getElementById('highlow').textContent=fmt(last.high)+' / '+fmt(last.low);document.getElementById('volume').textContent=fmt(last.volume);document.getElementById('marketStatus').textContent=j.market_status+' · '+j.count+' candles';analyze(candles)
 }catch(e){showTradingViewFallback(sym,document.getElementById('exchange').value);document.getElementById('marketStatus').textContent='TradingView chart · analysis data unavailable';document.getElementById('signal').textContent='Analysis data temporarily unavailable';document.getElementById('signalText').textContent='The independent TradingView chart is shown below. Yahoo Finance is rate-limiting analysis data right now, so RSI, volume metrics and pattern detection will return when that feed is available. Try again later.';document.getElementById('price').textContent='—';document.getElementById('change').textContent='Analysis feed unavailable';document.getElementById('highlow').textContent='—';document.getElementById('volume').textContent='—';document.getElementById('patternCount').textContent='—';}}
+
+const aiMessages=document.getElementById('aiMessages');
+function addAiMessage(text,who){const el=document.createElement('div');el.className='ai-msg '+who;el.textContent=text;aiMessages.appendChild(el);aiMessages.scrollTop=aiMessages.scrollHeight;return el}
+async function askStockAI(){const box=document.getElementById('aiPrompt'),prompt=box.value.trim();if(!prompt)return;box.value='';addAiMessage(prompt,'user');const wait=addAiMessage('Thinking…','bot');document.getElementById('aiSend').disabled=true;try{const payload={prompt,symbol:document.getElementById('symbol').value.trim().toUpperCase(),exchange:document.getElementById('exchange').value,interval,metrics:{price:document.getElementById('price').textContent,change:document.getElementById('change').textContent,highLow:document.getElementById('highlow').textContent,volume:document.getElementById('volume').textContent,rsi:document.getElementById('rsi').textContent,trend:document.getElementById('trend').textContent,volumeRatio:document.getElementById('volRatio').textContent,technicalSummary:document.getElementById('signal').textContent,summaryText:document.getElementById('signalText').textContent,supportResistance:document.getElementById('levels').innerText,patterns:document.getElementById('candlePatterns').innerText}};const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const j=await r.json();wait.textContent=j.answer||j.error||'I could not prepare an answer. Please try again.'}catch(e){wait.textContent='I could not connect to the assistant. Please try again.'}finally{document.getElementById('aiSend').disabled=false;aiMessages.scrollTop=aiMessages.scrollHeight}}
+document.getElementById('aiSend').addEventListener('click',askStockAI);document.getElementById('aiPrompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();askStockAI()}});document.querySelectorAll('[data-prompt]').forEach(b=>b.addEventListener('click',()=>{document.getElementById('aiPrompt').value=b.dataset.prompt;askStockAI()}));
+
 document.getElementById('analyze').onclick=load;document.getElementById('symbol').addEventListener('keydown',e=>{if(e.key==='Enter')load()});load();
 </script></body></html>
 """
@@ -138,6 +145,71 @@ def history():
     except Exception as exc:
         app.logger.exception("Market data request failed")
         return jsonify(error="Market data provider error. Please retry shortly or check the ticker."), 502
+
+@app.post("/api/ask")
+def ask():
+    body = request.get_json(silent=True) or {}
+    prompt = str(body.get("prompt", "")).strip()[:2000]
+    if not prompt:
+        return jsonify(error="Please enter a question."), 400
+    symbol = str(body.get("symbol", "the selected stock"))[:40]
+    exchange = str(body.get("exchange", "NS"))[:4]
+    interval = str(body.get("interval", "1D"))[:8]
+    metrics = body.get("metrics", {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    context = "\n".join(f"{str(k)[:40]}: {str(v)[:300]}" for k, v in metrics.items())
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if api_key:
+        import json
+        import urllib.request
+        system_prompt = (
+            "You are StockVision AI, a friendly educational stock-market explainer for beginners. "
+            "Answer in very simple language, define jargon, use short paragraphs and examples. "
+            "Use the provided snapshot only as current context; never invent live prices, news, or facts. "
+            "If data is missing or stale, say so. Explain risks and uncertainty. "
+            "Do not provide personalized buy/sell/hold instructions, price targets, guaranteed forecasts, "
+            "or encourage trading. You may explain indicators and describe technical signals neutrally. "
+            "Keep guidance educational and non-promotional. "
+            f"Selected instrument: {symbol} ({exchange}), timeframe: {interval}. Snapshot:\n{context}"
+        )
+        payload = {"contents":[{"parts":[{"text":system_prompt+"\n\nUser question: "+prompt}]}],
+                   "generationConfig":{"temperature":0.35,"maxOutputTokens":700}}
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + api_key
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+                                     headers={"Content-Type":"application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            answer = result["candidates"][0]["content"]["parts"][0]["text"]
+            return jsonify(answer=answer, mode="ai")
+        except Exception:
+            app.logger.exception("AI assistant provider request failed")
+            return jsonify(answer="The AI service could not answer right now. Please check the GEMINI_API_KEY setting in Render and try again."), 503
+    q = prompt.lower()
+    definitions = {
+        "rsi": "RSI means Relative Strength Index. It is a momentum meter from 0 to 100. Many chart users watch above 70 as possibly overbought and below 30 as possibly oversold, but these are not automatic buy or sell signals.",
+        "support": "Support is a price area where a stock has previously found buyers. Resistance is an area where it has previously faced selling. These levels can break, so they are not guarantees.",
+        "resistance": "Resistance is a price area where a stock has previously struggled to move higher. If it breaks through, the old resistance may behave differently later. It is not a guaranteed ceiling.",
+        "candlestick": "A candlestick shows four things for a time period: opening price, highest price, lowest price, and closing price. Green usually means the close was above the open; red means it was below.",
+        "doji": "A doji is a candle where opening and closing prices are very close. It can show indecision, but one doji alone does not predict the next move.",
+        "volume": "Volume is the number of shares traded during a period. Higher volume can show stronger participation, but it does not tell us by itself whether a move will continue.",
+        "ema": "EMA means Exponential Moving Average. It smooths price data and gives more weight to recent prices. It can help describe a trend, but it can lag behind sudden changes.",
+        "moving average": "A moving average smooths price changes to make the general direction easier to see. It is a descriptive tool, not a prediction.",
+        "bullish": "Bullish means the price direction or indicators look more positive. It does not mean the price must rise.",
+        "bearish": "Bearish means the price direction or indicators look more negative. It does not mean the price must fall.",
+        "pe ratio": "The P/E ratio compares a company's share price with its earnings per share. It can help compare valuations, but it should be considered alongside growth, debt, industry, and other information.",
+        "market cap": "Market capitalization is the market value of a company's shares: share price multiplied by total shares. It is one way to describe company size."
+    }
+    answer = next((v for k, v in definitions.items() if k in q), None)
+    if answer is None:
+        answer = (
+            f"I can help explain {symbol} ({exchange}) in simple language, but open-ended AI is not connected yet. "
+            "Add a GEMINI_API_KEY environment variable in Render to enable full conversational answers. "
+            "For now, try asking about RSI, support, resistance, candlesticks, doji, volume, EMA, bullish/bearish, P/E ratio, or market cap. "
+            "I won't guess live news or prices."
+        )
+    return jsonify(answer=answer, mode="basic")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
