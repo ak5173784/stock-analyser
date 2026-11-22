@@ -152,62 +152,112 @@ def ask():
     prompt = str(body.get("prompt", "")).strip()[:2000]
     if not prompt:
         return jsonify(error="Please enter a question."), 400
+
     symbol = str(body.get("symbol", "the selected stock"))[:40]
     exchange = str(body.get("exchange", "NS"))[:4]
     interval = str(body.get("interval", "1D"))[:8]
     metrics = body.get("metrics", {})
     if not isinstance(metrics, dict):
         metrics = {}
-    context = "\n".join(f"{str(k)[:40]}: {str(v)[:300]}" for k, v in metrics.items())
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    context = "\n".join(
+        f"{str(k)[:40]}: {str(v)[:300]}" for k, v in metrics.items()
+    )
+
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if api_key:
         import json
         import urllib.request
-        system_prompt = (
+        import urllib.error
+
+        instructions = (
             "You are StockVision AI, a friendly educational stock-market explainer for beginners. "
-            "Answer in very simple language, define jargon, use short paragraphs and examples. "
-            "Use the provided snapshot only as current context; never invent live prices, news, or facts. "
-            "If data is missing or stale, say so. Explain risks and uncertainty. "
-            "Do not provide personalized buy/sell/hold instructions, price targets, guaranteed forecasts, "
-            "or encourage trading. You may explain indicators and describe technical signals neutrally. "
-            "Keep guidance educational and non-promotional. "
-            f"Selected instrument: {symbol} ({exchange}), timeframe: {interval}. Snapshot:\n{context}"
+            "Explain everything in very simple English, define technical words, and use short "
+            "paragraphs and everyday examples. The user may be a minor: keep the conversation "
+            "educational and age-appropriate. Do not tell the user what stock to buy, sell, or hold; "
+            "do not give personalized investment recommendations, trading instructions, price targets, "
+            "or guaranteed predictions. You may explain financial concepts, compare long-term and "
+            "short-term investing as general concepts, and neutrally explain technical indicators. "
+            "Never invent current prices, news, company facts, or data. Treat the supplied dashboard "
+            "snapshot as possibly delayed or incomplete; clearly say when information is unavailable. "
+            "Mention uncertainty and relevant risks. Do not claim to have checked live news or external "
+            "sources unless the user supplied them."
         )
-        payload = {"contents":[{"parts":[{"text":system_prompt+"\n\nUser question: "+prompt}]}],
-                   "generationConfig":{"temperature":0.35,"maxOutputTokens":700}}
-        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + api_key
-        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
-                                     headers={"Content-Type":"application/json"}, method="POST")
+        user_input = (
+            f"Selected stock: {symbol} ({exchange})\n"
+            f"Selected timeframe: {interval}\n"
+            f"Dashboard snapshot:\n{context or 'No dashboard metrics are currently available.'}\n\n"
+            f"User question: {prompt}"
+        )
+        payload = {
+            "model": os.environ.get("OPENAI_MODEL", "gpt-6.2-astra"),
+            "instructions": instructions,
+            "input": user_input,
+            "max_output_tokens": 800,
+            "store": False
+        }
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + api_key
+            },
+            method="POST"
+        )
         try:
-            with urllib.request.urlopen(req, timeout=20) as response:
+            with urllib.request.urlopen(req, timeout=30) as response:
                 result = json.loads(response.read().decode("utf-8"))
-            answer = result["candidates"][0]["content"]["parts"][0]["text"]
-            return jsonify(answer=answer, mode="ai")
+
+            answer = result.get("output_text", "")
+            if not answer:
+                parts = []
+                for item in result.get("output", []):
+                    if item.get("type") == "message":
+                        for part in item.get("content", []):
+                            if part.get("type") == "output_text":
+                                parts.append(part.get("text", ""))
+                answer = "\n".join(parts).strip()
+
+            if not answer:
+                app.logger.error("OpenAI returned no text: %s", result)
+                return jsonify(answer="The AI service returned an empty answer. Please try again."), 502
+            return jsonify(answer=answer, mode="openai")
+        except urllib.error.HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")[:1200]
+            app.logger.error("OpenAI API HTTP error %s: %s", exc.code, details)
+            if exc.code == 401:
+                message = "OpenAI rejected the API key. Check that OPENAI_API_KEY is correct and active in Render."
+            elif exc.code == 429:
+                message = "The OpenAI API account has reached a usage limit or has no available API credits. Check API billing and limits."
+            elif exc.code == 400:
+                message = "The OpenAI request was rejected. Check the configured OPENAI_MODEL and try again."
+            else:
+                message = "The OpenAI service is temporarily unavailable. Please try again shortly."
+            return jsonify(answer=message), 503
         except Exception:
-            app.logger.exception("AI assistant provider request failed")
-            return jsonify(answer="The AI service could not answer right now. Please check the GEMINI_API_KEY setting in Render and try again."), 503
+            app.logger.exception("OpenAI assistant request failed")
+            return jsonify(answer="I couldn't connect to OpenAI right now. Please try again shortly."), 503
+
     q = prompt.lower()
     definitions = {
-        "rsi": "RSI means Relative Strength Index. It is a momentum meter from 0 to 100. Many chart users watch above 70 as possibly overbought and below 30 as possibly oversold, but these are not automatic buy or sell signals.",
+        "rsi": "RSI means Relative Strength Index. It is a momentum meter from 0 to 100. Some chart users watch readings above 70 or below 30, but these are not automatic buy or sell signals.",
         "support": "Support is a price area where a stock has previously found buyers. Resistance is an area where it has previously faced selling. These levels can break, so they are not guarantees.",
-        "resistance": "Resistance is a price area where a stock has previously struggled to move higher. If it breaks through, the old resistance may behave differently later. It is not a guaranteed ceiling.",
-        "candlestick": "A candlestick shows four things for a time period: opening price, highest price, lowest price, and closing price. Green usually means the close was above the open; red means it was below.",
-        "doji": "A doji is a candle where opening and closing prices are very close. It can show indecision, but one doji alone does not predict the next move.",
-        "volume": "Volume is the number of shares traded during a period. Higher volume can show stronger participation, but it does not tell us by itself whether a move will continue.",
+        "resistance": "Resistance is a price area where a stock has previously struggled to move higher. It is not a guaranteed ceiling.",
+        "candlestick": "A candlestick shows the opening, highest, lowest, and closing prices during one time period.",
+        "doji": "A doji is a candle where opening and closing prices are very close. It can show indecision, but it cannot predict the next move by itself.",
+        "volume": "Volume is the number of shares traded during a period. It can show how active trading was, but it does not predict direction by itself.",
         "ema": "EMA means Exponential Moving Average. It smooths price data and gives more weight to recent prices. It can help describe a trend, but it can lag behind sudden changes.",
         "moving average": "A moving average smooths price changes to make the general direction easier to see. It is a descriptive tool, not a prediction.",
         "bullish": "Bullish means the price direction or indicators look more positive. It does not mean the price must rise.",
         "bearish": "Bearish means the price direction or indicators look more negative. It does not mean the price must fall.",
-        "pe ratio": "The P/E ratio compares a company's share price with its earnings per share. It can help compare valuations, but it should be considered alongside growth, debt, industry, and other information.",
-        "market cap": "Market capitalization is the market value of a company's shares: share price multiplied by total shares. It is one way to describe company size."
+        "pe ratio": "The P/E ratio compares a company's share price with its earnings per share. It is one valuation measure, not a complete picture of a company.",
+        "market cap": "Market capitalization is the market value of a company's shares: share price multiplied by total shares."
     }
     answer = next((v for k, v in definitions.items() if k in q), None)
     if answer is None:
         answer = (
-            f"I can help explain {symbol} ({exchange}) in simple language, but open-ended AI is not connected yet. "
-            "Add a GEMINI_API_KEY environment variable in Render to enable full conversational answers. "
-            "For now, try asking about RSI, support, resistance, candlesticks, doji, volume, EMA, bullish/bearish, P/E ratio, or market cap. "
-            "I won't guess live news or prices."
+            "The OpenAI connection is not configured yet. Add OPENAI_API_KEY to the Render "
+            "environment and redeploy to enable open-ended AI answers. I won't guess live prices or news."
         )
     return jsonify(answer=answer, mode="basic")
 
