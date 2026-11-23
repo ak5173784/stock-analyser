@@ -1,33 +1,29 @@
-# StockVision AI
+# Welcome to your Lovable project
 
-A responsive educational NSE/BSE stock-analysis dashboard.
+This project was built with [Lovable](https://lovable.dev).
 
-## Features
-- NSE and BSE ticker lookup (for example, RELIANCE on NSE)
-- Candlestick chart and volume chart
-- Timeframes: 1m, 5m, 15m, 30m, 1h, 4h, 1D, 1W, 1M
-- Basic candlestick-pattern detection
-- Support/resistance snapshots and simple trend/volume heuristics
-- Educational technical-bias summary (not investment advice)
+## Build with Lovable
 
-## Run locally
-```bash
-python -m venv .venv
-# Windows: .venv\\Scripts\\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
+Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
+- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+
+## Development
+
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+
+```sh
+git clone <this-repository-url>
+cd <repository-name>
+npm i
+npm run dev
 ```
-Open http://localhost:10000.
 
-## Deploy on Render
-Create a Python web service connected to this repository:
-- Build command: `pip install -r requirements.txt`
-- Start command: `gunicorn app:app`
-- Health check path: `/health`
-- Runtime: Python 3
+## Built with
 
-No API key is embedded. Market history is retrieved through yfinance/Yahoo Finance and may be delayed, rate-limited, incomplete, or unavailable. Verify data with your broker or exchange. No orders are placed.
-
-## Notes
-The chart structures and technical summary are simple heuristics, not a trained AI model or reliable price forecast. Do not use the displayed bias as personalized investment advice.
+- TanStack Start
+- TypeScript
+- React
+- Tailwind CSS
